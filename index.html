@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物体重量測定システム</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 10px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 20px;
+            margin: 0 0 15px 0;
+            color: #333;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin: 0 0 10px 0;
+            color: #555;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background-color: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .choice-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .choice-buttons button {
+            flex: 1;
+            background-color: #28a745;
+            margin-bottom: 0;
+        }
+
+        .choice-buttons button:hover {
+            background-color: #1e7e34;
+        }
+
+        .suggestion {
+            background-color: #e8f4fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .range {
+            background-color: #d4edda;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .phase {
+            border: 2px solid #007AFF;
+            margin-bottom: 20px;
+        }
+
+        .phase h2 {
+            background-color: #007AFF;
+            color: white;
+            margin: -15px -15px 15px -15px;
+            padding: 10px 15px;
+        }
+
+        .measurement-history {
+            font-size: 14px;
+            background-color: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>物体重量測定システム</h1>
+
+    <!-- Phase 1: 物体Aの測定 -->
+    <div class="container phase" id="phase1">
+        <h2>Phase 1: 物体Aの重さ測定</h2>
+        <div id="phase1Content">
+            <input type="number" id="initialWeight" placeholder="秤で測った重さ (g)" step="50">
+            <button onclick="startMeasurement()">測定開始</button>
+        </div>
+        <div id="phase1Results"></div>
+    </div>
+
+    <!-- Phase 2: 物体A+dの測定 -->
+    <div class="container phase" id="phase2" style="display: none;">
+        <h2>Phase 2: 物体A+dの重さ測定</h2>
+        <div id="phase2Content">
+            <input type="number" id="increasedWeight" placeholder="増加後の秤で測った重さ (g)" step="50">
+            <button onclick="startIncreasedMeasurement()">測定開始</button>
+        </div>
+        <div id="phase2Results"></div>
+    </div>
+
+    <!-- 最終結果 -->
+    <div class="container" id="finalResults" style="display: none;">
+        <h2>最終結果</h2>
+        <div id="finalContent"></div>
+    </div>
+
+    <script>
+        let data = [];
+        let currentPhase = 1;
+        let phase1Range = { min: 0, max: Infinity };
+        let phase2Range = { min: 0, max: Infinity };
+        let measurementCount = 0;
+        let maxMeasurements = 4;
+        let initialWeight = 0;  // 初期重量を記録
+
+        // データ読み込み
+        async function loadData() {
+            try {
+                const response = await fetch('data.json');
+                data = await response.json();
+                console.log('Data loaded:', data.length, 'items');
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('phase1Content').innerHTML =
+                    '<div class="error">data.jsonの読み込みに失敗しました</div>';
+            }
+        }
+
+        // 秤の値を計算（50g単位での表示）
+        function calculateScaleReading(actualWeight) {
+            const v = Math.round(actualWeight / 50) * 50;
+            if (actualWeight <= v - 25) {
+                return v - 50;
+            } else if (actualWeight <= v + 25) {
+                return v;
+            } else {
+                return v + 50;
+            }
+        }
+
+        // 範囲から適切なアイテムを選択（新しい式による計算）
+        function selectItems(range, measurementNumber = 1) {
+            // kの値を (initialWeight + 25 - (range[1] - range[0])/2) * 10 で計算
+            const rangeSize = range.max + range.min;
+            const targetK = Math.round((initialWeight + 25 - rangeSize / 2) * 10);
+
+            // データからtargetKに一致するアイテムを検索
+            for (let item of data) {
+                if (item.k === targetK) {
+                    const itemWeight = item.total_weight / 10; // グラムに変換
+                    return {
+                        items: item.items,
+                        weight: itemWeight,
+                        k: targetK
+                    };
+                }
+            }
+
+            // 該当するkが見つからない場合は、最も近いkを選択
+            let closestItem = null;
+            let minDiff = Infinity;
+
+            for (let item of data) {
+                const diff = Math.abs(item.k - targetK);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestItem = item;
+                }
+            }
+
+            if (closestItem) {
+                const itemWeight = closestItem.total_weight / 10;
+                return {
+                    items: closestItem.items,
+                    weight: itemWeight,
+                    k: closestItem.k
+                };
+            }
+
+            // フォールバック
+            return {
+                items: [],
+                weight: 0,
+                k: targetK
+            };
+        }        // 測定開始
+        function startMeasurement() {
+            const weight = parseFloat(document.getElementById('initialWeight').value);
+            if (!weight || weight <= 0) {
+                alert('正しい重さを入力してください');
+                return;
+            }
+
+            // 初期重量を記録
+            initialWeight = weight;
+
+            // 初期範囲を設定
+            phase1Range = {
+                min: weight - 25,
+                max: weight + 25
+            };
+            measurementCount = 0;
+
+            document.getElementById('phase1Results').innerHTML = `
+                <div class="range">初期範囲: ${phase1Range.min}g ～ ${phase1Range.max}g</div>
+                <div class="measurement-history">4回の精密測定を開始します</div>
+            `;
+
+            continuePhase1Measurement();
+        }
+
+        // Phase1の測定を続行
+        function continuePhase1Measurement() {
+            if (measurementCount >= maxMeasurements) {
+                finishPhase1();
+                return;
+            }
+
+            const selected = selectItems(phase1Range, measurementCount + 1);
+            if (selected.items.length === 0) {
+                finishPhase1();
+                return;
+            }
+
+            measurementCount++;
+
+            const possibleWeight1 = phase1Range.min + selected.weight;
+            const possibleWeight2 = phase1Range.max + selected.weight;
+            const scaleReading1 = calculateScaleReading(possibleWeight1);
+            const scaleReading2 = calculateScaleReading(possibleWeight2);
+
+            const suggestionHtml = `
+                <div class="measurement-history">測定 ${measurementCount}回目</div>
+                <div class="suggestion">
+                    <strong>追加する物体B:</strong> ${selected.items.join(', ')}<br>
+                    <strong>重さ:</strong> ${selected.weight}g<br>
+                    <strong>秤の表示を選択してください:</strong>
+                    <div class="choice-buttons">
+                        <button onclick="processPhase1Reading(${measurementCount}, ${selected.weight}, ${scaleReading1}, ${scaleReading2}, ${scaleReading1})">${scaleReading1}g</button>
+                        <button onclick="processPhase1Reading(${measurementCount}, ${selected.weight}, ${scaleReading1}, ${scaleReading2}, ${scaleReading2})">${scaleReading2}g</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('phase1Results').insertAdjacentHTML('beforeend', suggestionHtml);
+        }
+
+        // Phase1の測定結果を処理
+        function processPhase1Reading(count, addedWeight, expected1, expected2, selectedReading) {
+            const reading = selectedReading;
+
+            // 範囲を更新
+            if (reading === expected1) {
+                phase1Range.max = (phase1Range.min + phase1Range.max) / 2;
+            } else if (reading === expected2) {
+                phase1Range.min = (phase1Range.min + phase1Range.max) / 2;
+            } else {
+                document.getElementById('phase1Results').insertAdjacentHTML('beforeend',
+                    '<div class="error">予想外の値です。再度確認してください。</div>');
+                return;
+            }
+
+            document.getElementById('phase1Results').insertAdjacentHTML('beforeend',
+                `<div class="range">更新範囲: ${phase1Range.min.toFixed(1)}g ～ ${phase1Range.max.toFixed(1)}g</div>`);
+
+            continuePhase1Measurement();
+        }
+
+        // Phase1を終了
+        function finishPhase1() {
+            document.getElementById('phase1Results').insertAdjacentHTML('beforeend',
+                `<div class="range">Phase1完了 (${measurementCount}回測定): 物体Aの重さは ${phase1Range.min.toFixed(1)}g ～ ${phase1Range.max.toFixed(1)}g</div>`);
+
+            document.getElementById('phase2').style.display = 'block';
+            currentPhase = 2;
+        }
+
+        // 増加後の測定開始
+        function startIncreasedMeasurement() {
+            const weight = parseFloat(document.getElementById('increasedWeight').value);
+            if (!weight || weight <= 0) {
+                alert('正しい重さを入力してください');
+                return;
+            }
+
+            // Phase2用の初期重量を更新
+            initialWeight = weight;
+
+            // 初期範囲を設定
+            phase2Range = {
+                min: weight - 25,
+                max: weight + 25
+            };
+            measurementCount = 0;
+
+            document.getElementById('phase2Results').innerHTML = `
+                <div class="range">初期範囲: ${phase2Range.min}g ～ ${phase2Range.max}g</div>
+                <div class="measurement-history">4回の精密測定を開始します</div>
+            `;
+
+            continuePhase2Measurement();
+        }
+
+        // Phase2の測定を続行
+        function continuePhase2Measurement() {
+            if (measurementCount >= maxMeasurements) {
+                finishPhase2();
+                return;
+            }
+
+            const selected = selectItems(phase2Range, measurementCount + 1);
+            if (selected.items.length === 0) {
+                finishPhase2();
+                return;
+            }
+
+            measurementCount++;
+
+            const possibleWeight1 = phase2Range.min + selected.weight;
+            const possibleWeight2 = phase2Range.max + selected.weight;
+            const scaleReading1 = calculateScaleReading(possibleWeight1);
+            const scaleReading2 = calculateScaleReading(possibleWeight2);
+
+            const suggestionHtml = `
+                <div class="measurement-history">測定 ${measurementCount}回目</div>
+                <div class="suggestion">
+                    <strong>追加する物体B:</strong> ${selected.items.join(', ')}<br>
+                    <strong>重さ:</strong> ${selected.weight}g<br>
+                    <strong>秤の表示を選択してください:</strong>
+                    <div class="choice-buttons">
+                        <button onclick="processPhase2Reading(${measurementCount}, ${selected.weight}, ${scaleReading1}, ${scaleReading2}, ${scaleReading1})">${scaleReading1}g</button>
+                        <button onclick="processPhase2Reading(${measurementCount}, ${selected.weight}, ${scaleReading1}, ${scaleReading2}, ${scaleReading2})">${scaleReading2}g</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('phase2Results').insertAdjacentHTML('beforeend', suggestionHtml);
+        }
+
+        // Phase2の測定結果を処理
+        function processPhase2Reading(count, addedWeight, expected1, expected2, selectedReading) {
+            const reading = selectedReading;
+
+            // 範囲を更新
+            if (reading === expected1) {
+                phase2Range.max = (phase2Range.min + phase2Range.max) / 2;
+            } else if (reading === expected2) {
+                phase2Range.min = (phase2Range.min + phase2Range.max) / 2;
+            } else {
+                document.getElementById('phase2Results').insertAdjacentHTML('beforeend',
+                    '<div class="error">予想外の値です。再度確認してください。</div>');
+                return;
+            }
+
+            document.getElementById('phase2Results').insertAdjacentHTML('beforeend',
+                `<div class="range">更新範囲: ${phase2Range.min.toFixed(1)}g ～ ${phase2Range.max.toFixed(1)}g</div>`);
+
+            continuePhase2Measurement();
+        }
+
+        // Phase2を終了
+        function finishPhase2() {
+            document.getElementById('phase2Results').insertAdjacentHTML('beforeend',
+                `<div class="range">Phase2完了 (${measurementCount}回測定): 物体A+dの重さは ${phase2Range.min.toFixed(1)}g ～ ${phase2Range.max.toFixed(1)}g</div>`);
+
+            showFinalResults();
+        }
+
+        // 最終結果を表示
+        function showFinalResults() {
+            const dMin = phase2Range.min - phase1Range.max;
+            const dMax = phase2Range.max - phase1Range.min;
+
+            document.getElementById('finalContent').innerHTML = `
+                <div class="range">物体Aの重さ: ${phase1Range.min.toFixed(1)}g ～ ${phase1Range.max.toFixed(1)}g</div>
+                <div class="range">物体A+dの重さ: ${phase2Range.min.toFixed(1)}g ～ ${phase2Range.max.toFixed(1)}g</div>
+                <div class="range">推定されるdの値: ${dMin.toFixed(1)}g ～ ${dMax.toFixed(1)}g</div>
+                <div class="range">dの範囲の幅: ${(dMax - dMin).toFixed(1)}g</div>
+            `;
+
+            document.getElementById('finalResults').style.display = 'block';
+        }
+
+        // ページ読み込み時にデータを読み込む
+        window.onload = function () {
+            loadData();
+        };
+    </script>
+</body>
+
+</html>
