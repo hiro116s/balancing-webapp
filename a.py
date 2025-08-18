@@ -1,5 +1,6 @@
 import io
 import json
+import sys
 
 def solve_item_combination_to_json(data):
     """
@@ -45,6 +46,7 @@ def solve_item_combination_to_json(data):
         
         # 到達不可能な場合は、数値を0、リストを空にする
         if num_items == float('inf'):
+            print("<到達不可能> <k:{}>".format(k), file=sys.stderr)
             num_items = 0
             total_weight = 0
             item_list = []
@@ -68,10 +70,6 @@ input_data = """
 円筒小(クリーム色),225
 円筒小(クリーム色),225
 円筒小(黄色),225
-円筒小(KOKIN-CHAN),230
-円筒小(メロンぱんまん),230
-円筒小(カレーぱんまん),238
-円筒小(DADANDAN),238
 円筒大(青色),358
 円筒大(ピンク色),358
 円筒大(緑色),358
@@ -86,7 +84,6 @@ input_data = """
 直方体(クリーム色),345
 直方体(クリーム色),345
 直方体(黄色),345
-直方体(ジャムおじさんとなぞの顔),355
 三角柱(緑色),440
 三角柱(黄色),457
 三角柱(クリーム色),457
